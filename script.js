@@ -109,4 +109,197 @@ const drawGroups = () => {
         if (groupNodes.length === 0) return;
         const padding = 20;
         const minX = Math.min(...groupNodes.map(n => n.x)) - padding;
-        const minY = Math.min(...group
+        const minY = Math.min(...groupNodes.map(n => n.y)) - padding;
+        const maxX = Math.max(...groupNodes.map(n => n.x + n.width)) + padding;
+        const maxY = Math.max(...groupNodes.map(n => n.y + n.height)) + padding;
+        ctx.strokeStyle = categoryColors[category];
+        ctx.lineWidth = 2;
+        ctx.strokeRect(minX, minY, maxX - minX, maxY - minY);
+        ctx.fillStyle = categoryColors[category];
+        ctx.font = 'bold 14px Arial';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'top';
+        const textWidth = ctx.measureText(category).width;
+        const textX = Math.max(minX + 5, Math.min(minX + 5, maxX - textWidth - 5));
+        const textY = Math.max(minY + 5, Math.min(minY + 5, maxY - 20));
+        ctx.fillText(category, textX, textY);
+
+        // Draw toggle arrow
+        const arrow = collapsedGroups[category] ? '▶' : '▼';
+        ctx.fillText(arrow, textX + textWidth + 10, textY);
+    });
+}
+
+const draw = () => {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    drawGroups();
+    edges.forEach(drawEdge);
+    nodes.forEach(drawNode);
+}
+
+const updateGroups = () => {
+    groups = {};
+    Object.keys(categoryColors).forEach(category => {
+        groups[category] = nodes.filter(node => node.category === category);
+    });
+
+    if (isGrouped) {
+        const orderedGroups = topologicalSortGroups(groups, edges);
+        arrangeGroups(orderedGroups);
+    }
+}
+
+const populateLegend = () => {
+    legendItems.innerHTML = '';
+    Object.entries(categoryColors).forEach(([category, color]) => {
+        const item = document.createElement('div');
+        item.className = 'legend-item';
+        item.innerHTML = `
+            <div class="color-box" style="background-color: ${color};"></div>
+            <span>${category}</span>
+            <span class="group-toggle" onclick="toggleGroup('${category}')">${collapsedGroups[category] ? '▶' : '▼'}</span>
+        `;
+        legendItems.appendChild(item);
+    });
+}
+
+const getGroupAtPosition = (x, y) => {
+    if (!isGrouped) return null;
+    for (const [category, groupNodes] of Object.entries(groups)) {
+        if (groupNodes.length === 0) continue;
+        const padding = 20;
+        const minX = Math.min(...groupNodes.map(n => n.x)) - padding;
+        const minY = Math.min(...groupNodes.map(n => n.y)) - padding;
+        const maxX = Math.max(...groupNodes.map(n => n.x + n.width)) + padding;
+        const maxY = Math.max(...groupNodes.map(n => n.y + n.height)) + padding;
+        if (x >= minX && x <= maxX && y >= minY && y <= maxY) {
+            return category;
+        }
+    }
+    return null;
+}
+
+const toggleGroup = category => {
+    collapsedGroups[category] = !collapsedGroups[category];
+    draw();
+    populateLegend();
+}
+
+const topologicalSortGroups = (groups, edges) => {
+    const inDegree = new Map();
+    const graph = new Map();
+    Object.keys(groups).forEach(category => {
+        inDegree.set(category, 0);
+        graph.set(category, []);
+    });
+
+    edges.forEach(edge => {
+        const fromNode = nodes.find(node => node.id === edge.from);
+        const toNode = nodes.find(node => node.id === edge.to);
+        if (fromNode && toNode && fromNode.category !== toNode.category) {
+            graph.get(fromNode.category).push(toNode.category);
+            inDegree.set(toNode.category, inDegree.get(toNode.category) + 1);
+        }
+    });
+
+    const queue = [];
+    inDegree.forEach((degree, category) => {
+        if (degree === 0) queue.push(category);
+    });
+
+    const sortedCategories = [];
+    while (queue.length > 0) {
+        const category = queue.shift();
+        sortedCategories.push(category);
+        graph.get(category).forEach(neighborCategory => {
+            inDegree.set(neighborCategory, inDegree.get(neighborCategory) - 1);
+            if (inDegree.get(neighborCategory) === 0) queue.push(neighborCategory);
+        });
+    }
+    return sortedCategories.map(category => groups[category]);
+}
+
+const arrangeGroups = orderedGroups => {
+    const padding = 50;
+    const startX = 50;
+    const startY = 50;
+    let currentX = startX;
+    let currentY = startY;
+
+    orderedGroups.forEach(groupNodes => {
+        currentY = startY;
+        groupNodes.forEach(node => {
+            node.x = currentX;
+            node.y = currentY;
+            currentY += node.height + padding;
+        });
+        currentX += 200; // Fixed width for each group box
+    });
+}
+
+canvas.addEventListener('mousedown', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+    draggedNode = nodes.find(node => 
+        mouseX >= node.x && mouseX <= node.x + node.width &&
+        mouseY >= node.y && mouseY <= node.y + node.height
+    );
+    if (!draggedNode && isGrouped) {
+        draggedGroup = getGroupAtPosition(mouseX, mouseY);
+    }
+    if (draggedNode || draggedGroup) {
+        canvas.style.cursor = 'grabbing';
+        dragStartX = mouseX;
+        dragStartY = mouseY;
+    }
+});
+
+canvas.addEventListener('mousemove', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+    if (draggedNode) {
+        draggedNode.x = mouseX - draggedNode.width / 2;
+        draggedNode.y = mouseY - draggedNode.height / 2;
+        updateGroups();
+        draw();
+    } else if (draggedGroup) {
+        const dx = mouseX - dragStartX;
+        const dy = mouseY - dragStartY;
+        groups[draggedGroup].forEach(node => {
+            node.x += dx;
+            node.y += dy;
+        });
+        dragStartX = mouseX;
+        dragStartY = mouseY;
+        draw();
+    }
+});
+
+canvas.addEventListener('mouseup', () => {
+    if (draggedNode || draggedGroup) {
+        canvas.style.cursor = 'move';
+        draggedNode = null;
+        draggedGroup = null;
+    }
+});
+
+toggleGroupingButton.addEventListener('click', () => {
+    isGrouped = !isGrouped;
+    toggleGroupingButton.textContent = isGrouped ? 'Disable Grouping' : 'Enable Grouping';
+    updateGroups();
+    draw();
+});
+
+toggleLegendButton.addEventListener('click', () => {
+    isLegendVisible = !isLegendVisible;
+    legend.style.display = isLegendVisible ? 'block' : 'none';
+    toggleLegendButton.textContent = isLegendVisible ? 'Hide Legend' : 'Show Legend';
+});
+
+initializeNodes();
+updateGroups();
+populateLegend();
+draw();
+
