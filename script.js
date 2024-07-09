@@ -224,18 +224,33 @@ const arrangeGroups = orderedGroups => {
     const startX = 50;
     const startY = 50;
     let currentX = startX;
-    let currentY = startY;
 
     orderedGroups.forEach(groupNodes => {
-        currentY = startY;
+        let currentY = startY;
+        let maxWidth = 0;
+
+        // Sort nodes within the group by height
+        groupNodes.sort((a, b) => b.height - a.height);
+
         groupNodes.forEach(node => {
             node.x = currentX;
             node.y = currentY;
             currentY += node.height + padding;
+            maxWidth = Math.max(maxWidth, node.width);
         });
-        currentX += 200; // Fixed width for each group box
+
+        // Adjust positions to center nodes within the group
+        const groupHeight = currentY - startY - padding;
+        const centerY = startY + groupHeight / 2;
+        groupNodes.forEach(node => {
+            node.y += centerY - (groupHeight / 2 + startY);
+            node.x += (maxWidth - node.width) / 2;
+        });
+
+        currentX += maxWidth + padding * 2; // Add extra padding between groups
     });
 }
+
 
 canvas.addEventListener('mousedown', (e) => {
     const rect = canvas.getBoundingClientRect();
